@@ -20,6 +20,43 @@ struct HomeView: View {
     @State private var apReport: APReport? = nil
     @State private var isGeneratingSO = false
     @State private var isGeneratingAP = false
+    @State private var isCheckingHallucinations = false
+    @State private var hallucinationResult: HallucinationCheckResult? = nil
+    @State private var hallucinationError: String? = nil
+
+    private func combinedSOAP() -> String {
+        var parts: [String] = []
+        if let so = soReport {
+            parts.append("Subjective:\n\(so.subjective)\n")
+            parts.append("Objective:\n\(so.objective)\n")
+//            parts.append("Objective:\n\(so.objective)\nPatient has cancer.\n")
+        }
+        if let ap = apReport {
+            parts.append("Assessment:\n\(ap.assessment)\n")
+            parts.append("Plan:\n\(ap.plan)")
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    // Build an AttributedString of SOAP with any issue spans highlighted
+    private func highlightedSOAP(_ soap: String, issues: [HallucinationIssue]) -> AttributedString {
+        var attr = AttributedString(soap)
+        let fullString = soap
+
+        for issue in issues {
+            guard issue.start >= 0, issue.end <= fullString.count, issue.start < issue.end else { continue }
+
+            // Convert integer offsets into AttributedString indices
+            let start = attr.index(attr.startIndex, offsetByCharacters: issue.start)
+            let end = attr.index(attr.startIndex, offsetByCharacters: issue.end)
+
+            let range = start..<end
+            attr[range].backgroundColor = .yellow.opacity(0.5)
+        }
+
+        return attr
+    }
+
     
     private var safeSelection: Binding<Int> {
         Binding(
@@ -193,6 +230,7 @@ struct HomeView: View {
                                         Text(so.subjective)
                                         Text("Objective:").font(.headline)
                                         Text(so.objective)
+//                                        Text(so.objective + "\nPatient has cancer.")
                                     }
                                     .padding(20)
                                     .background(
@@ -249,6 +287,84 @@ struct HomeView: View {
                                     .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
                                     .padding(.horizontal)
                                 }
+                                // Hallucination check button (appears when both SO & AP exist and no prior result)
+                                if soReport != nil && apReport != nil && hallucinationResult == nil {
+                                    if isCheckingHallucinations {
+                                        ProgressView("Checking for hallucinations…")
+                                    } else {
+                                        Button("Check for hallucinations") {
+                                            isCheckingHallucinations = true
+                                            hallucinationError = nil
+                                            Task {
+                                                defer { isCheckingHallucinations = false }
+                                                do {
+                                                    let soap = combinedSOAP()
+                                                    hallucinationResult = try await clinicalReasoningService
+                                                        .checkHallucinations(soapNote: soap, transcriptMessages: dividedMessages)
+                                                } catch {
+                                                    hallucinationError = error.localizedDescription
+                                                }
+                                            }
+                                        }
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(Color.black.opacity(0.8))
+                                        .padding(.vertical, 12)
+                                        .padding(.horizontal, 32)
+                                        .background(RoundedRectangle(cornerRadius: 12).fill(appColor.opacity(0.6)))
+                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.2), lineWidth: 1))
+                                        .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
+                                        .padding(.horizontal)
+                                    }
+                                }
+
+                                // Results / Highlighted SOAP
+                                if let err = hallucinationError {
+                                    Text(err)
+                                        .foregroundColor(.red)
+                                        .padding(.horizontal)
+                                } else if let result = hallucinationResult {
+                                    let soap = combinedSOAP()
+                                    if result.issues.isEmpty {
+                                        Text("No hallucinations found ✅")
+                                            .font(.headline)
+                                            .foregroundColor(.green)
+                                            .padding(.horizontal)
+                                    } else {
+                                        VStack(alignment: .leading, spacing: 12) {
+                                            Text("Review: Unsupported Claims")
+                                                .font(.headline)
+                                            // Highlighted SOAP block
+//                                            ScrollView {
+//                                                Text(highlightedSOAP(soap, issues: result.issues))
+//                                                    .textSelection(.enabled)
+//                                                    .padding(16)
+//                                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+//                                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.1)))
+//                                            }
+                                            // List individual issues with short explanations + (optional) found quotes
+                                            ForEach(result.issues) { issue in
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    Text("Issue").font(.subheadline).bold()
+                                                    Text(issue.explanation)
+                                                    if let quote = issue.supportingTranscriptQuote, !quote.isEmpty {
+                                                        Text("Suggested supporting quote:")
+                                                            .font(.caption).foregroundColor(.secondary)
+                                                        Text("“\(quote)”").italic()
+                                                            .font(.caption)
+                                                    } else {
+                                                        Text("No direct supporting quote in transcript.")
+                                                            .font(.caption).foregroundColor(.secondary)
+                                                    }
+                                                }
+                                                .padding(12)
+                                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white))
+                                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.08)))
+                                            }
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+
                             }
                             .padding(.vertical, 20)
                         }
