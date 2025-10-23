@@ -331,16 +331,16 @@ struct HomeView: View {
                                             .padding(.horizontal)
                                     } else {
                                         VStack(alignment: .leading, spacing: 12) {
-                                            Text("Review: Unsupported Claims Highlighted")
+                                            Text("Review: Unsupported Claims")
                                                 .font(.headline)
                                             // Highlighted SOAP block
-                                            ScrollView {
-                                                Text(highlightedSOAP(soap, issues: result.issues))
-                                                    .textSelection(.enabled)
-                                                    .padding(16)
-                                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
-                                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.1)))
-                                            }
+//                                            ScrollView {
+//                                                Text(highlightedSOAP(soap, issues: result.issues))
+//                                                    .textSelection(.enabled)
+//                                                    .padding(16)
+//                                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+//                                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.1)))
+//                                            }
                                             // List individual issues with short explanations + (optional) found quotes
                                             ForEach(result.issues) { issue in
                                                 VStack(alignment: .leading, spacing: 6) {
