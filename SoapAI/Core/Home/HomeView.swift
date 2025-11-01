@@ -29,6 +29,9 @@ struct HomeView: View {
     @State private var isExportingPDF = false
     private let pdfPageSize = CGSize(width: 612, height: 792) // 8.5 x 11"
     private let pdfMargin: CGFloat = 36 // margins 0.5"
+    
+    @State private var transcriptPDFURL: URL? = nil
+    @State private var isExportingTranscriptPDF = false
 
     private func combinedSOAP() -> String {
         var parts: [String] = []
@@ -256,6 +259,136 @@ struct HomeView: View {
         }
     }
     
+    // MARK: - Transcript PDF View
+    @ViewBuilder
+    private func pdfTranscriptView(messages: [ChatMessage]) -> some View {
+        let generatedOn = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Transcript")
+                    .font(.title).bold()
+                Text("Generated \(generatedOn)")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            // Body - reusing the same message bubble styling keeps visual parity
+            // For PDFs we’ll keep the background white so it prints cleanly.
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(messages.indices, id: \.self) { idx in
+                    let m = messages[idx]
+                    HStack {
+                        if m.role == "doctor" { Spacer(minLength: 0) }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(m.role.capitalized)
+                                .font(.caption).bold()
+                                .foregroundColor(.secondary)
+                            Text(m.content)
+                                .font(.body)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(12)
+                        .background(m.role == "doctor" ? Color.orange.opacity(0.20) : Color.blue.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        if m.role == "patient" { Spacer(minLength: 0) }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 24)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+    }
+
+    // MARK: - Transcript PDF Generator (reuse your slicing approach)
+    private func generateTranscriptPDF(messages: [ChatMessage]) throws -> URL {
+        let contentWidth = pdfPageSize.width - 2 * pdfMargin
+        let view = pdfTranscriptView(messages: messages)
+            .frame(width: contentWidth)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = UIScreen.main.scale
+
+        guard let uiImage = renderer.uiImage else {
+            throw NSError(domain: "PDF", code: -11,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to render transcript to image."])
+        }
+
+        let meta: [String: Any] = [
+            kCGPDFContextCreator as String: "SoapAI",
+            kCGPDFContextTitle as String: "Transcript"
+        ]
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Transcript_\(UUID().uuidString).pdf")
+
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = meta as [String: Any]
+
+        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pdfPageSize), format: format)
+
+        // Same geometry as your SOAP exporter
+        let contentRect = CGRect(x: pdfMargin, y: pdfMargin,
+                                 width: contentWidth,
+                                 height: pdfPageSize.height - 2 * pdfMargin)
+
+        let fullImageHeightPts = uiImage.size.height
+        let scalePtsToDest = uiImage.size.width / contentWidth
+        let pageSliceHeightPts = contentRect.height * scalePtsToDest
+
+        let pixelScale = uiImage.scale
+        let fullImageHeightPx = fullImageHeightPts * pixelScale
+        let pageSliceHeightPx = pageSliceHeightPts * pixelScale
+        let srcWidthPx = uiImage.size.width * pixelScale
+
+        try pdfRenderer.writePDF(to: tmpURL) { ctx in
+            var yPts: CGFloat = 0
+            var yPx: CGFloat = 0
+
+            while yPts < fullImageHeightPts - 0.5 {
+                ctx.beginPage()
+
+                let srcPx = CGRect(
+                    x: 0,
+                    y: yPx.rounded(.down),
+                    width: srcWidthPx.rounded(.down),
+                    height: min(pageSliceHeightPx, fullImageHeightPx - yPx).rounded(.down)
+                )
+
+                if let cgImage = uiImage.cgImage?.cropping(to: srcPx.integral) {
+                    let destHeightPts = (srcPx.height / pixelScale) / scalePtsToDest
+                    let dest = CGRect(x: contentRect.minX,
+                                      y: contentRect.minY,
+                                      width: contentRect.width,
+                                      height: destHeightPts)
+                    UIImage(cgImage: cgImage, scale: uiImage.scale, orientation: .up)
+                        .draw(in: dest)
+                }
+
+                yPts += pageSliceHeightPts
+                yPx  += pageSliceHeightPx
+            }
+        }
+
+        return tmpURL
+    }
+
+    private func exportTranscriptPDF() {
+        guard !dividedMessages.isEmpty else { return }
+        do {
+            let url = try generateTranscriptPDF(messages: dividedMessages)
+            transcriptPDFURL = url
+            isExportingTranscriptPDF = true
+        } catch {
+            print("Transcript PDF export failed:", error.localizedDescription)
+        }
+    }
+
+    
     private var safeSelection: Binding<Int> {
         Binding(
             get: { selectedTab },
@@ -377,6 +510,45 @@ struct HomeView: View {
                     if !dividedMessages.isEmpty {
                         VStack(spacing: 24) {
                             TranscriptionView(messages: dividedMessages)
+                            
+                            // Export Transcript PDF
+                            if !dividedMessages.isEmpty {
+                                Button {
+                                    exportTranscriptPDF()
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "square.and.arrow.up.on.square")
+                                        Text("Export Transcript PDF")
+                                    }
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(Color.black.opacity(0.85))
+                                    .padding(.vertical, 12)
+                                    .padding(.horizontal, 24)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(appColor.opacity(0.7))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.black.opacity(0.15))
+                                    )
+                                }
+
+                                if let tURL = transcriptPDFURL {
+                                    ShareLink(item: tURL,
+                                              preview: SharePreview("Transcript", image: Image(systemName: "doc.text"))) {
+                                        Label("Share Transcript PDF", systemImage: "square.and.arrow.up")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(Color.black.opacity(0.85))
+                                            .padding(.vertical, 12)
+                                            .padding(.horizontal, 24)
+                                            .background(RoundedRectangle(cornerRadius: 12).fill(appColor.opacity(0.7)))
+                                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.15)))
+                                    }
+                                }
+
+                            }
+
                             
                             if !dividedMessages.isEmpty && soReport == nil {
                                 if isGeneratingSO {
