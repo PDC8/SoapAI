@@ -1,2 +1,4 @@
 .DS_Store
 Config.local.xcconfig
+Assets.xcassets
+*plist
