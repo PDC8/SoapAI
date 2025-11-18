@@ -36,7 +36,6 @@ struct HomeView: View {
         )
     }
     
-    
     private func exportNotePDF() {
         guard viewModel.soReport != nil, viewModel.apReport != nil else { return }
 
@@ -75,11 +74,8 @@ struct HomeView: View {
             VStack(spacing: 0) {
                 TabView(selection: safeSelection) {
                     
-                    // pane 1 - recording
-                    RecordingPaneView(viewModel: viewModel, appColor: appColor)
-                        .tag(0)
-
-                    // Pane 2 – Transcript & SO generation
+                    
+                    // Left – Transcript & SO generation
                     if !viewModel.dividedMessages.isEmpty {
                         TranscriptPaneView(
                                 viewModel: viewModel,
@@ -89,8 +85,12 @@ struct HomeView: View {
                             )
                             .tag(1)
                     }
+                    
+                    // Middle - recording
+                    RecordingPaneView(viewModel: viewModel, appColor: appColor)
+                        .tag(0)
 
-                    // Pane 3 – SOAP, AP, hallucinations, SOAP PDF
+                    // Right – SOAP, AP, hallucinations, SOAP PDF
                     if viewModel.soReport != nil {
                         NotePaneView(
                             viewModel: viewModel,
@@ -114,10 +114,10 @@ struct HomeView: View {
                 // Bottom navbar
                 HStack {
                     Spacer()
-                    navButton(systemName: "microphone", index: 0)
-                    Spacer()
-                    Spacer()
                     navButton(systemName: "text.bubble", index: 1)
+                    Spacer()
+                    Spacer()
+                    navButton(systemName: "microphone", index: 0)
                     Spacer()
                     Spacer()
                     navButton(systemName: "doc.plaintext", index: 2)

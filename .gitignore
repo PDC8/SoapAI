@@ -1,4 +1,4 @@
 .DS_Store
 Config.local.xcconfig
 Assets.xcassets
-*plist
+SoapAI/Info.plist

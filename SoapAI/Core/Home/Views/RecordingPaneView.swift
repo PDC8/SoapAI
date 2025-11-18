@@ -10,6 +10,8 @@ import SwiftUI
 struct RecordingPaneView: View {
     @ObservedObject var viewModel: HomeViewModel
     let appColor: Color
+    
+    @State private var importedPdfText: String? = nil
 
     var body: some View {
         VStack(spacing: 24) {
@@ -76,6 +78,8 @@ struct RecordingPaneView: View {
             }
 
             Spacer()
+
+            PdfImportCard(viewModel: viewModel)
         }
         .padding()
     }

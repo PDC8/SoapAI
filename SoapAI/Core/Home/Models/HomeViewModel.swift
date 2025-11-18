@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import PDFKit
 
 @MainActor
 final class HomeViewModel: ObservableObject {
@@ -27,6 +28,10 @@ final class HomeViewModel: ObservableObject {
     @Published var hasAudioFile: Bool = false
 
     private var timer: Timer?
+    
+    // MARK: - Patient data (from presheet)
+    @Published var presheetRawText: String? = nil
+    @Published var patientData: PatientDataModel? = nil
 
     // MARK: - SOAP reports
     @Published var soReport: SOReport?
@@ -165,6 +170,20 @@ final class HomeViewModel: ObservableObject {
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+    }
+    
+    func handlePresheetPDFData(_ data: Data) {
+        guard let text = extractTextFromPDF(data: data) else {
+            print("Failed to extract text from PDF")
+            return
+        }
+
+        DispatchQueue.main.async {
+            self.presheetRawText = text
+
+            // For now, keep parsing minimal / stubbed
+            self.patientData = PresheetParser.parse(from: text)
+        }
     }
 
     // MARK: - Private helpers
