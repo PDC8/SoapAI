@@ -39,6 +39,64 @@ struct NotePaneView: View {
                     
                     APCard(apReport: ap)
                 }
+                
+                if let emotion = viewModel.emotionAnalysis {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Patient Emotional Tone")
+                            .font(.headline)
+
+                        // bullets
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(emotion.summaryBullets, id: \.self) { bullet in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("•")
+                                    Text(bullet)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+
+                        // mini “trajectory” row from `moments`
+                        if !emotion.moments.isEmpty {
+                            Divider().padding(.vertical, 8)
+
+                            Text("Emotional trajectory")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(emotion.moments) { moment in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Text(moment.phase.capitalized)
+                                            .font(.caption)
+                                            .frame(width: 70, alignment: .leading)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(appColor.opacity(0.4))
+                                            )
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(moment.emotion.capitalized)
+                                                .font(.caption.bold())
+                                            Text(moment.description)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.white)
+                    )
+                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                    .padding(.horizontal, 16)
+                }
 
                 // Hallucination check button (appears when both SO & AP exist and no prior result)
                 if viewModel.soReport != nil,

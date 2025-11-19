@@ -426,6 +426,128 @@ class ClinicalReasoningService {
         let AP = try JSONDecoder().decode(APReport.self, from: jsonData)
         return AP
     }
+    
+    func analyzePatientEmotions(
+            from conversationMessages: [ChatMessage]
+        ) async throws -> EmotionAnalysisResult {
+
+            // Patient-only transcript
+            let patientMessages = conversationMessages
+                .filter { $0.role.lowercased() == "patient" }
+
+            let patientTranscript = patientMessages
+                .map { "Patient: \($0.content)" }
+                .joined(separator: "\n")
+
+            let system = ChatMessage(
+                role: "system",
+                content: """
+                You are an assistant that analyzes the PATIENT's emotional state in a clinical conversation.
+
+                Only analyze the patient's words.
+
+                Your tasks:
+                1. Identify how the patient feels:
+                   - entering the conversation (first 1–3 patient turns)
+                   - any major emotional shifts during the conversation
+                   - ending the conversation (last 1–3 turns)
+
+                2. Classify emotions using ONLY this set:
+                   anxiety, fear, concerns, doubts, skepticism,
+                   frustration, anger, neutral, optimistic, agreeable,
+                   excited, hopeful.
+
+                3. Output TWO components:
+
+                   A) "summaryBullets": 4–6 holistic bullet points describing the patient's
+                      emotional state and how it evolves. These should NOT reference timestamps
+                      or quotes—just a clean, clinician-friendly emotional interpretation.
+
+                   B) "moments": an array of:
+                      {
+                        "phase": "entering" | "shift" | "ending",
+                        "emotion": "<one allowed label>",
+                        "description": "<1–2 sentence holistic interpretation>"
+                      }
+
+                Formatting rules:
+                - JSON output only.
+                - No markdown, no code fences.
+                - JSON must start with '{' and end with '}'.
+                """
+            )
+
+            let user = ChatMessage(
+                role: "user",
+                content: """
+                PATIENT-ONLY TRANSCRIPT:
+
+                \(patientTranscript)
+                """
+            )
+
+            let messages = [system, user]
+
+            let payload: [String: Any] = [
+                "model": "gpt-4o",
+                "response_format": ["type": "json_object"],
+                "messages": messages.map { ["role": $0.role, "content": $0.content] }
+            ]
+
+            let requestData = try JSONSerialization.data(withJSONObject: payload)
+            var request = URLRequest(url: URL(string: chatEndpoint)!)
+            request.httpMethod = "POST"
+            request.httpBody = requestData
+            request.addValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            let (data, response) = try await session.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse {
+                print("analyzePatientEmotions - HTTP Status Code: \(httpResponse.statusCode)")
+            }
+            if let raw = String(data: data, encoding: .utf8) {
+                print("analyzePatientEmotions - Raw response: \(raw)")
+            }
+
+            // Decode envelope
+            let chatResponse = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
+            guard let messageContent = chatResponse.choices.first?.message.content,
+                  let jsonData = messageContent.data(using: .utf8) else {
+                throw NSError(
+                    domain: "ClinicalReasoningService",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Missing or invalid response content"]
+                )
+            }
+
+            // Decode the raw JSON
+            struct RawMoment: Codable {
+                let phase: String
+                let emotion: String
+                let description: String
+            }
+
+            struct RawResult: Codable {
+                let summaryBullets: [String]
+                let moments: [RawMoment]
+            }
+
+            let raw = try JSONDecoder().decode(RawResult.self, from: jsonData)
+
+            let mappedMoments = raw.moments.map {
+                EmotionMoment(
+                    phase: $0.phase,
+                    emotion: $0.emotion,
+                    description: $0.description
+                )
+            }
+
+            return EmotionAnalysisResult(
+                summaryBullets: raw.summaryBullets,
+                moments: mappedMoments
+            )
+        }
 
 }
 

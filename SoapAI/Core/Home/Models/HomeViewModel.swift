@@ -38,6 +38,7 @@ final class HomeViewModel: ObservableObject {
     
     @Published var soReport: SOReport?
     @Published var apReport: APReport?
+    @Published var emotionAnalysis: EmotionAnalysisResult? = nil
 
     @Published var isGeneratingSO: Bool = false
     @Published var isGeneratingAP: Bool = false
@@ -144,7 +145,22 @@ final class HomeViewModel: ObservableObject {
             hallucinationError = error.localizedDescription
         }
     }
+    
+    func runEmotionAnalysis() async {
+        guard !dividedMessages.isEmpty else { return }
 
+        do {
+            let result = try await clinicalReasoningService.analyzePatientEmotions(
+                from: dividedMessages
+            )
+            await MainActor.run {
+                self.emotionAnalysis = result
+            }
+        } catch {
+            print("Emotion analysis failed: \(error)")
+        }
+    }
+    
     func resetSessionForNewRecording() {
         // timers
         stopTimer()
@@ -200,7 +216,7 @@ final class HomeViewModel: ObservableObject {
         DispatchQueue.main.async {
             self.presheetRawText = text
 
-            // For now, keep parsing minimal / stubbed
+            // For now, keep parsing minimal 
             self.patientData = PresheetParser.parse(from: text)
         }
     }

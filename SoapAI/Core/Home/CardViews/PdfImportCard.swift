@@ -23,7 +23,7 @@ struct PdfImportCard: View {
     var body: some View {
         VStack(spacing: 16) {
             if let patient = viewModel.patientData,
-               let name = patient.fullName ?? patient.notes {
+               let _ = patient.fullName ?? patient.notes {
                 Text("Presheet imported")
                     .font(.subheadline)
                     .bold()

@@ -13,6 +13,8 @@ struct SoapReportPDFView: View {
     let visitSummary: VisitSummary?
     let patientData: PatientDataModel?
     let issues: [HallucinationIssue]
+    
+    
 
     var body: some View {
         let generatedOn = DateFormatter.localizedString(

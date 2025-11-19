@@ -46,6 +46,7 @@ struct HomeView: View {
         let issues = viewModel.hallucinationResult?.issues ?? []
         let summary = viewModel.visitSummary
         let patientData = viewModel.patientData
+        let emotionAnalysis = viewModel.emotionAnalysis
 
         do {
             pdfURL = try PDFExportService.shared.exportVectorSOAP(
@@ -53,7 +54,8 @@ struct HomeView: View {
                 apReport: ap,
                 visitSummary: summary,
                 patientData: patientData,
-                issues: issues
+                issues: issues,
+                emotionAnalysis: emotionAnalysis
             )
             isExportingPDF = true
         } catch {

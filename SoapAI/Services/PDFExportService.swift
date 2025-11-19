@@ -43,7 +43,8 @@ final class PDFExportService {
         apReport: APReport,
         visitSummary: VisitSummary?,
         patientData: PatientDataModel?,
-        issues: [HallucinationIssue]
+        issues: [HallucinationIssue],
+        emotionAnalysis: EmotionAnalysisResult?
     ) throws -> URL {
         let meta: [String: Any] = [
             kCGPDFContextCreator as String: "SoapAI",
@@ -68,7 +69,8 @@ final class PDFExportService {
                 apReport: apReport,
                 visitSummary: visitSummary,
                 patientData: patientData,
-                issues: issues
+                issues: issues,
+                emotionAnalysis: emotionAnalysis
             )
         }
 
@@ -81,7 +83,8 @@ final class PDFExportService {
         apReport: APReport,
         visitSummary: VisitSummary?,
         patientData: PatientDataModel?,
-        issues: [HallucinationIssue]
+        issues: [HallucinationIssue],
+        emotionAnalysis: EmotionAnalysisResult?
     ) {
         let margin = pdfMargin
         let contentWidth = pdfPageSize.width - 2 * margin
@@ -142,7 +145,8 @@ final class PDFExportService {
         }
 
         func drawSection(title: String, body: String) {
-            guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
 
             let titleAttrs: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: 16, weight: .semibold)
@@ -153,7 +157,7 @@ final class PDFExportService {
             ]
 
             // Measure body height
-            let bodyNSString = body as NSString
+            let bodyNSString = trimmed as NSString
             let bodySize = bodyNSString.boundingRect(
                 with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -192,40 +196,138 @@ final class PDFExportService {
 
         drawHeader()
 
+        // Visit Summary (matches SummaryCard / NotePane style)
         if let summary = visitSummary {
             drawSection(title: "Visit Summary", body: summary.oneLine)
         }
 
-        // Subjective
-        drawSection(title: "Subjective", body: soReport.subjective)
+        // SUBJECTIVE: matches SubjectiveCard structure
+        do {
+            var subjectiveLines: [String] = []
 
-        // Objective (flattened into text)
-        var objectiveLines: [String] = []
-        let o = soReport.objective
-        objectiveLines.append("HEENT: \(o.HEENT)")
-        objectiveLines.append("Lungs: \(o.lungs)")
-        objectiveLines.append("Heart: \(o.heart)")
-        objectiveLines.append("Abdomen: \(o.abdomen)")
-        objectiveLines.append("Extremities: \(o.extremities)")
-        objectiveLines.append("Neuro: \(o.neuro)")
-        objectiveLines.append("Other: \(o.other)")
-        drawSection(title: "Objective", body: objectiveLines.joined(separator: "\n"))
+            // main subjective text
+            subjectiveLines.append(soReport.subjective)
 
-        // Assessment
+            if let patientData = patientData {
+                // Past Medical History
+                if let pmh = patientData.pastMedicalHistory, !pmh.isEmpty {
+                    subjectiveLines.append("")
+                    subjectiveLines.append("Past Medical History:")
+                    for item in pmh {
+                        subjectiveLines.append("• \(item)")
+                    }
+                }
+
+                // Allergies
+                if let allergies = patientData.allergies, !allergies.isEmpty {
+                    subjectiveLines.append("")
+                    subjectiveLines.append("Allergies:")
+                    for item in allergies {
+                        subjectiveLines.append("• \(item)")
+                    }
+                }
+
+                // Medications
+                if let meds = patientData.medications, !meds.isEmpty {
+                    subjectiveLines.append("")
+                    subjectiveLines.append("Medications:")
+                    for item in meds {
+                        subjectiveLines.append("• \(item)")
+                    }
+                }
+            }
+
+            drawSection(
+                title: "Subjective",
+                body: subjectiveLines.joined(separator: "\n")
+            )
+        }
+
+        // OBJECTIVE: matches ObjectiveCard structure
+        do {
+            var objectiveLines: [String] = []
+
+            if let vitals = patientData?.vitals, !vitals.isEmpty {
+                objectiveLines.append("Vitals:")
+                for v in vitals {
+                    objectiveLines.append("• \(v)")
+                }
+                objectiveLines.append("") // blank line before PE
+            }
+
+            objectiveLines.append("Physical Exam")
+            let o = soReport.objective
+            objectiveLines.append("HEENT: \(o.HEENT)")
+            objectiveLines.append("Lungs: \(o.lungs)")
+            objectiveLines.append("Heart: \(o.heart)")
+            objectiveLines.append("Abdomen: \(o.abdomen)")
+            objectiveLines.append("Extremities: \(o.extremities)")
+            objectiveLines.append("Neuro: \(o.neuro)")
+            objectiveLines.append("Other: \(o.other)")
+
+            drawSection(
+                title: "Objective",
+                body: objectiveLines.joined(separator: "\n")
+            )
+        }
+
+        // ASSESSMENT: matches APCard top half
         drawSection(title: "Assessment", body: apReport.assessment)
 
-        // Plan (as bullet list)
-        var planText = ""
-        for problem in apReport.plan {
-            planText += "\(problem.problem):\n"
-            for action in problem.actions {
-                planText += "  • \(action)\n"
+        // PLAN: matches APCard bullet structure
+        do {
+            var planText = ""
+            for problem in apReport.plan {
+                planText += "\(problem.problem):\n"
+                for action in problem.actions {
+                    planText += "  • \(action)\n"
+                }
+                planText += "\n"
             }
-            planText += "\n"
+            drawSection(
+                title: "Plan",
+                body: planText.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
-        drawSection(title: "Plan", body: planText.trimmingCharacters(in: .whitespacesAndNewlines))
+        
+        // EMOTION:
+        if let emotion = emotionAnalysis {
+            var lines: [String] = []
 
-        // Hallucinations
+            // Overall bullets
+            if !emotion.summaryBullets.isEmpty {
+                lines.append("Overall emotional impressions:")
+                for bullet in emotion.summaryBullets {
+                    lines.append("• \(bullet)")
+                }
+            }
+
+            // Trajectory
+            if !emotion.moments.isEmpty {
+                if !lines.isEmpty { lines.append("") }
+                lines.append("Emotional trajectory:")
+                for moment in emotion.moments {
+                    let phase = moment.phase.capitalized
+                    let label = moment.emotion.capitalized
+                    lines.append("\(phase): \(label)")
+                    lines.append("  \(moment.description)")
+                    lines.append("")
+                }
+            }
+
+            let body = lines
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !body.isEmpty {
+                drawSection(
+                    title: "Patient Emotional Tone",
+                    body: body
+                )
+            }
+        }
+
+        // HALLUCINATIONS: keep your current logic, styled like a section
         if !issues.isEmpty {
             var issuesText = ""
             for (idx, issue) in issues.enumerated() {
@@ -235,9 +337,13 @@ final class PDFExportService {
                 }
                 issuesText += "\n"
             }
-            drawSection(title: "Hallucination Review", body: issuesText.trimmingCharacters(in: .whitespacesAndNewlines))
+            drawSection(
+                title: "Hallucination Review",
+                body: issuesText.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
     }
+
 
 
 

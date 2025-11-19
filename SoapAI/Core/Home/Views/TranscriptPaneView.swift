@@ -75,6 +75,7 @@ struct TranscriptPaneView: View {
                         await viewModel.generateVisitSummary()
                         await viewModel.generateSOReport()
                         await viewModel.generateAPReport()
+                        await viewModel.runEmotionAnalysis()
                     }
                 } label: {
                     Text("Generate SOAP Note")
