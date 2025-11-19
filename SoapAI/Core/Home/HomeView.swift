@@ -20,7 +20,8 @@ struct HomeView: View {
     @State private var transcriptPDFURL: URL? = nil
     @State private var isExportingTranscriptPDF = false
     
-    let appColor = Color(red: 245/255, green: 235/255, blue: 220/255)
+    let appColor = Color(red: 255/255, green: 253/255, blue: 250/255)
+
 
     // MARK: - Safe tab selection wrapper
     private var safeSelection: Binding<Int> {
@@ -37,18 +38,30 @@ struct HomeView: View {
     }
     
     private func exportNotePDF() {
-        guard viewModel.soReport != nil, viewModel.apReport != nil else { return }
+        guard
+            let so = viewModel.soReport,
+            let ap = viewModel.apReport
+        else { return }
 
-        let soap = viewModel.combinedSOAP()
         let issues = viewModel.hallucinationResult?.issues ?? []
+        let summary = viewModel.visitSummary
+        let patientData = viewModel.patientData
 
         do {
-            pdfURL = try PDFExportService.shared.exportSOAP(soap: soap, issues: issues)
+            pdfURL = try PDFExportService.shared.exportVectorSOAP(
+                soReport: so,
+                apReport: ap,
+                visitSummary: summary,
+                patientData: patientData,
+                issues: issues
+            )
             isExportingPDF = true
         } catch {
             print("PDF export failed:", error.localizedDescription)
         }
     }
+
+
 
     private func exportTranscriptPDF() {
         guard !viewModel.dividedMessages.isEmpty else { return }

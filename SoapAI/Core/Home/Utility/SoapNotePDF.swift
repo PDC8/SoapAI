@@ -8,7 +8,10 @@
 import SwiftUI
 
 struct SoapReportPDFView: View {
-    let soap: String
+    let soReport: SOReport
+    let apReport: APReport
+    let visitSummary: VisitSummary?
+    let patientData: PatientDataModel?
     let issues: [HallucinationIssue]
 
     var body: some View {
@@ -18,7 +21,8 @@ struct SoapReportPDFView: View {
             timeStyle: .short
         )
 
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 24) {
+
             // Header
             VStack(alignment: .leading, spacing: 6) {
                 Text("SOAP Report")
@@ -27,58 +31,40 @@ struct SoapReportPDFView: View {
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
+            .padding(.horizontal, 16)
 
-            Divider()
-
-            // SOAP text block
-            Text(soap)
-                .font(.body)
-                .textSelection(.enabled)
-
-            Divider()
-
-            // Hallucinations section
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Hallucination Review")
-                    .font(.headline)
-
-                if issues.isEmpty {
-                    Text("No hallucinations found ✅")
-                        .foregroundColor(.green)
-                } else {
-                    ForEach(issues) { issue in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Issue")
-                                .font(.subheadline).bold()
-                            Text(issue.explanation)
-                                .font(.body)
-
-                            if let quote = issue.supportingTranscriptQuote, !quote.isEmpty {
-                                Text("Suggested supporting quote:")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text("“\(quote)”")
-                                    .italic()
-                                    .font(.caption)
-                            } else {
-                                Text("No direct supporting quote in transcript.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(10)
-                        .background(Color(white: 0.98))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.black.opacity(0.08))
-                        )
-                    }
-                }
+            // Visit Summary (same layout as NotePaneView)
+            if let summary = visitSummary {
+                SummaryCard(summary: summary)
+                    .padding(.horizontal, 16)
             }
+
+            // SUBJECTIVE card
+            SubjectiveCard(
+                soReport: soReport,
+                patientData: patientData
+            )
+            .padding(.horizontal, 16)
+
+            // OBJECTIVE card
+            ObjectiveCard(
+                soReport: soReport,
+                patientData: patientData
+            )
+            .padding(.horizontal, 16)
+
+            // AP card
+            APCard(apReport: apReport)
+                .padding(.horizontal, 16)
+
+            // Hallucination Review
+            HallucinationCard(issues: issues)
+                .padding(.horizontal, 16)
         }
         .padding(.vertical, 24)
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white)
+        // Make sure the view takes its natural height instead of shrinking
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
+

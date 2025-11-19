@@ -13,7 +13,7 @@ struct TranscriptionView: View {
     
     var body: some View {
         ZStack {
-            Color(red: 245/255, green: 235/255, blue: 220/255)
+            Color(red: 255/255, green: 253/255, blue: 250/255)
                 .edgesIgnoringSafeArea(.all)
             
             ScrollView {

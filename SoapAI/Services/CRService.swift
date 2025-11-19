@@ -15,16 +15,38 @@ struct ChatMessage: Codable {
     let content: String
 }
 
+/// Expected structure for the one-line summary
+struct VisitSummary: Codable {
+    let oneLine: String
+    let selectedPastMedicalHistory: [String]
+}
+
+struct ObjectiveFindings: Codable {
+    let HEENT: String
+    let lungs: String
+    let heart: String
+    let abdomen: String
+    let extremities: String
+    let neuro: String
+    let other: String
+}
+
 /// Expected structure for the SO report output.
 struct SOReport: Codable {
     let subjective: String
-    let objective: String
+    let objective: ObjectiveFindings
+}
+
+/// Expected structure for a problem in the plan section.
+struct ProblemPlan: Codable, Hashable {
+    let problem: String
+    let actions: [String]
 }
 
 /// Expected structure for the AP report output.
 struct APReport: Codable {
     let assessment: String
-    let plan: String
+    let plan: [ProblemPlan]
 }
 
 /// Model for decoding the overall chat completion response.
@@ -101,119 +123,310 @@ class ClinicalReasoningService {
         return messagesArray
     }
     
-    func generateSOReport(from conversationMessages: [ChatMessage]) async throws -> SOReport {
+
+    func generateVisitSummary(
+        patient: PatientDataModel?,
+        conversationMessages: [ChatMessage]
+    ) async throws -> VisitSummary {
+        var contextLines: [String] = []
+
+        // ----- Presheet (if provided) -----
+        if let patient = patient {
+            if let age = patient.age {
+                contextLines.append("Age: \(age)")
+            }
+            if let sex = patient.sex {
+                contextLines.append("Sex: \(sex)")
+            }
+            if let setting = patient.setting {
+                contextLines.append("Setting: \(setting)")
+            }
+
+            if let pmh = patient.pastMedicalHistory, !pmh.isEmpty {
+                contextLines.append("Past medical history:")
+                for item in pmh {
+                    contextLines.append("- \(item)")
+                }
+            }
+        } else {
+            contextLines.append("No structured presheet data was provided. Infer demographics and relevant history from the conversation alone.")
+        }
+
+        // ----- FULL conversation transcript -----
+        let fullTranscript = conversationMessages
+            .map { "\($0.role.capitalized): \($0.content)" }
+            .joined(separator: "\n")
+
+        let combinedContext = """
+        PATIENT DEMOGRAPHICS AND HISTORY (if available):
+        \(contextLines.joined(separator: "\n"))
+
+        FULL CONVERSATION TRANSCRIPT:
+        \(fullTranscript)
+        """
+
         let systemMessage = ChatMessage(
             role: "system",
             content: """
-                    You are an assistant that generates the Subjective and Objective sections of a doctor's report based on a conversation between a doctor and a patient. 
-                    Analyze the conversation and return a JSON object only in the following format:
+            You are a clinical reasoning assistant.
 
-                    { 
-                      "subjective": "<string describing patient's reported symptoms and concerns>", 
-                      "objective": "<string describing doctor's clinical findings>" 
-                    }
+            Task:
+            1. From the patient's past medical history list (if provided), choose ONLY the diagnoses that are most relevant
+               to the current visit. If no presheet data is provided, infer the most relevant chronic conditions or comorbidities
+               from the conversation itself.
+            2. Use the patient's age, sex, and clinical context to generate a single-line summary in this style:
+               "27yo F with PMH of moderate persistent asthma and allergic rhinitis coming in for a follow up clinic visit."
 
-                    The response must be valid JSON. 
-                    Do not include Markdown formatting. 
-                    Do not include code fences (```json or ```). 
-                    Do not add any extra text, explanation, or annotations. 
-                    The output must begin with { and end with }.
+            Requirements:
+            - Output a valid JSON object with this exact shape:
+
+              {
+                "oneLine": "<the one-line summary>",
+                "selectedPastMedicalHistory": ["<diagnosis 1>", "<diagnosis 2>", ...]
+              }
+
+            - "selectedPastMedicalHistory" must only include the conditions you used in the one-line summary.
+            - If you have to infer PMH from the transcript (no presheet), still list what you inferred there.
+            - Do NOT include any extra keys.
+            - Do NOT include markdown, comments, or code fences.
+            - The JSON must start with { and end with }.
             """
         )
-        
-        let concatenatedContent = conversationMessages.map { message in
-            "\(message.role.capitalized): \(message.content)"
-        }.joined(separator: "\n")
-        
-        let conversationMessage = ChatMessage(role: "user", content: concatenatedContent)
-        
-        let messages = [systemMessage, conversationMessage]
+
+        let userMessage = ChatMessage(role: "user", content: combinedContext)
+
+        let messages = [systemMessage, userMessage]
+
         let payload: [String: Any] = [
             "model": "gpt-4o",
             "messages": messages.map { ["role": $0.role, "content": $0.content] }
         ]
-        
+
         let requestData = try JSONSerialization.data(withJSONObject: payload)
         var request = URLRequest(url: URL(string: chatEndpoint)!)
         request.httpMethod = "POST"
         request.httpBody = requestData
         request.addValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
+        if let httpResponse = response as? HTTPURLResponse {
+            print("generateVisitSummary - HTTP Status Code: \(httpResponse.statusCode)")
+        }
+        if let raw = String(data: data, encoding: .utf8) {
+            print("generateVisitSummary - Raw response: \(raw)")
+        }
+
+        let chatResponse = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
+        guard let messageContent = chatResponse.choices.first?.message.content,
+              let jsonData = messageContent.data(using: .utf8) else {
+            throw NSError(
+                domain: "ClinicalReasoningService",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Missing or invalid response content"]
+            )
+        }
+
+        let summary = try JSONDecoder().decode(VisitSummary.self, from: jsonData)
+        return summary
+    }
+    
+    func generateSOReport(from conversationMessages: [ChatMessage]) async throws -> SOReport {
+        let systemMessage = ChatMessage(
+            role: "system",
+            content: """
+            You are an assistant that generates the Subjective and Objective sections of a doctor's report
+            based on a conversation between a doctor and a patient.
+
+            Tasks:
+            1. Create a single free-text "subjective" section summarizing the patient's reported symptoms,
+               concerns, and relevant history from the conversation.
+            2. Create a structured "objective" section with the following fields:
+
+               - HEENT
+               - lungs
+               - heart
+               - abdomen
+               - extremities
+               - neuro
+               - other
+
+            For each field in "objective":
+            - If the doctor mentioned relevant exam findings for that system, briefly summarize them.
+            - If there were no findings or the system was not examined, set the value to "Not done".
+
+            Output format (JSON ONLY):
+
+            {
+              "subjective": "<string>",
+              "objective": {
+                "HEENT": "<string>",
+                "lungs": "<string>",
+                "heart": "<string>",
+                "abdomen": "<string>",
+                "extremities": "<string>",
+                "neuro": "<string>",
+                "other": "<string>"
+              }
+            }
+
+            Requirements:
+            - The response must be valid JSON.
+            - Do NOT include Markdown formatting.
+            - Do NOT include code fences (```json or ```).
+            - Do NOT add any extra keys or extra text.
+            - The output must begin with { and end with }.
+            """
+        )
+
+        let concatenatedContent = conversationMessages.map { message in
+            "\(message.role.capitalized): \(message.content)"
+        }.joined(separator: "\n")
+
+        let conversationMessage = ChatMessage(role: "user", content: concatenatedContent)
+
+        let messages = [systemMessage, conversationMessage]
+        let payload: [String: Any] = [
+            "model": "gpt-4o",
+            "response_format": ["type": "json_object"],
+            "messages": messages.map { ["role": $0.role, "content": $0.content] }
+        ]
+
+        let requestData = try JSONSerialization.data(withJSONObject: payload)
+        var request = URLRequest(url: URL(string: chatEndpoint)!)
+        request.httpMethod = "POST"
+        request.httpBody = requestData
+        request.addValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (data, response) = try await session.data(for: request)
+
         if let httpResponse = response as? HTTPURLResponse {
             print("generateSOReport - HTTP Status Code: \(httpResponse.statusCode)")
         }
         if let rawResponse = String(data: data, encoding: .utf8) {
             print("generateSOReport - Raw response: \(rawResponse)")
         }
-        
+
         let chatResponse = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
         guard let messageContent = chatResponse.choices.first?.message.content,
               let jsonData = messageContent.data(using: .utf8) else {
-            throw NSError(domain: "ClinicalReasoningService", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing or invalid response content"])
+            throw NSError(
+                domain: "ClinicalReasoningService",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Missing or invalid response content"]
+            )
         }
+
         let SO = try JSONDecoder().decode(SOReport.self, from: jsonData)
         return SO
     }
+
     
     func generateAPReport(from conversationMessages: [ChatMessage]) async throws -> APReport {
         let systemMessage = ChatMessage(
             role: "system",
-            content:"""
-                    You are an assistant that generates the Assessment and Plan sections of a doctor's report based on a conversation between a doctor and a patient. 
-                    Analyze the conversation and return a JSON object only in the following format:
+            content: """
+            You are an assistant that generates the Assessment and Plan sections 
+            of a doctor's report based on a conversation between a doctor and a patient.
 
-                    { 
-                      "assessment": "<string describing your clinical interpretation>", 
-                      "plan": "<string describing your recommended next steps>" 
-                    }
+            Assessment:
+            - Provide a concise summary of your clinical interpretation of the case.
 
-                    The response must be valid JSON. 
-                    Do not include Markdown formatting. 
-                    Do not include code fences (```json or ```). 
-                    Do not add any extra text, explanation, or annotations. 
-                    The output must begin with { and end with }.
-                    """
+            Plan:
+            - The plan must be organized by problems.
+            - For each problem, create:
+              - problem: a short problem label (e.g., "Uncontrolled asthma", "Medication adherence & prevention").
+              - actions: an array of short, specific action items for that problem.
+
+            Example structure (for illustration of format only):
+
+            {
+              "assessment": "27-year-old woman with moderate persistent asthma with recent worsening control...",
+              "plan": [
+                {
+                  "problem": "Uncontrolled asthma",
+                  "actions": [
+                    "Initiate therapy with a combination inhaler of budesonide and formoterol to serve as both controller and reliever.",
+                    "Discontinue the fluticasone inhaler and continue using albuterol for breakthrough symptoms as needed.",
+                    "Provide an asthma action plan to manage flare-ups."
+                  ]
+                },
+                {
+                  "problem": "Medication adherence and preventive care",
+                  "actions": [
+                    "Arrange for auto refills of inhalers.",
+                    "Administer the influenza vaccine.",
+                    "Ensure the patient understands how to use a peak flow meter and when to contact the office for low readings."
+                  ]
+                }
+              ]
+            }
+
+            Requirements:
+            - Output a valid JSON object with this exact shape:
+
+              {
+                "assessment": "<string>",
+                "plan": [
+                  {
+                    "problem": "<short label for the problem>",
+                    "actions": ["<action 1>", "<action 2>", "..."]
+                  },
+                  ...
+                ]
+              }
+
+            - Do NOT include any extra top-level keys.
+            - Do NOT include markdown, code fences, or commentary.
+            - The JSON must start with { and end with }.
+            """
         )
-        
+
         let concatenatedContent = conversationMessages.map { message in
             "\(message.role.capitalized): \(message.content)"
         }.joined(separator: "\n")
-        
+
         let conversationMessage = ChatMessage(role: "user", content: concatenatedContent)
-        
+
         let messages = [systemMessage, conversationMessage]
         let payload: [String: Any] = [
             "model": "gpt-4o",
+            "response_format": ["type": "json_object"],
             "messages": messages.map { ["role": $0.role, "content": $0.content] }
         ]
-        
+
         let requestData = try JSONSerialization.data(withJSONObject: payload)
         var request = URLRequest(url: URL(string: chatEndpoint)!)
         request.httpMethod = "POST"
         request.httpBody = requestData
         request.addValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         if let httpResponse = response as? HTTPURLResponse {
             print("generateAPReport - HTTP Status Code: \(httpResponse.statusCode)")
         }
         if let rawResponse = String(data: data, encoding: .utf8) {
             print("generateAPReport - Raw response: \(rawResponse)")
         }
-        
+
         let chatResponse = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
         guard let messageContent = chatResponse.choices.first?.message.content,
               let jsonData = messageContent.data(using: .utf8) else {
-            throw NSError(domain: "ClinicalReasoningService", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing or invalid response content"])
+            throw NSError(
+                domain: "ClinicalReasoningService",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Missing or invalid response content"]
+            )
         }
+
         let AP = try JSONDecoder().decode(APReport.self, from: jsonData)
         return AP
     }
+
 }
 
 

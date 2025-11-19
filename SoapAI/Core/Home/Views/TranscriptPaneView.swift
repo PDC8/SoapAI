@@ -72,10 +72,12 @@ struct TranscriptPaneView: View {
 
                 Button {
                     Task {
+                        await viewModel.generateVisitSummary()
                         await viewModel.generateSOReport()
+                        await viewModel.generateAPReport()
                     }
                 } label: {
-                    Text("Generate Report")
+                    Text("Generate SOAP Note")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(Color.black.opacity(0.8))
                         .padding(.vertical, 12)

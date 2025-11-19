@@ -19,8 +19,8 @@ struct PatientDataModel: Identifiable {
     var pastMedicalHistory: [String]?
     var allergies: [String]?
     var medications: [String]?
-    var vitals: String?
-    var studies: [String]?
+    var vitals: [String]?
+    var testResults: [String]?
     
     var notes: String?          // catch-all / debug
 }

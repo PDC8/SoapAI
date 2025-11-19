@@ -25,18 +25,23 @@ struct RecordingPaneView: View {
                     Circle()
                         .fill(
                             viewModel.isRecording
-                                ? Color.red.opacity(0.3)
-                                : Color.green.opacity(0.3)
+                                ? Color(red: 60/255, green: 136/255, blue: 140/255)
+                                : Color(red: 60/255, green: 136/255, blue: 140/255)
                         )
                     // Stroke on top
                     Circle()
-                        .stroke(Color.black, lineWidth: 4)
+                        .stroke(Color(red: 86/255, green: 157/255, blue: 161/255), lineWidth: 7)
                 }
-                .frame(width: 80, height: 80)
+                .frame(width: 140, height: 140)
                 .overlay(
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(.black)
+                    viewModel.isRecording
+                        ? Image(systemName: "pause")
+                            .font(.system(size: 70))
+                            .foregroundColor(.white)
+                        : Image(systemName: "play.fill")
+                            .font(.system(size: 70))
+                            .foregroundColor(.white)
+                    
                 )
             }
 
@@ -80,6 +85,8 @@ struct RecordingPaneView: View {
             Spacer()
 
             PdfImportCard(viewModel: viewModel)
+            
+            
         }
         .padding()
     }

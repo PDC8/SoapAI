@@ -34,6 +34,8 @@ final class HomeViewModel: ObservableObject {
     @Published var patientData: PatientDataModel? = nil
 
     // MARK: - SOAP reports
+    @Published var visitSummary: VisitSummary?
+    
     @Published var soReport: SOReport?
     @Published var apReport: APReport?
 
@@ -80,6 +82,23 @@ final class HomeViewModel: ObservableObject {
             print("Transcribe failed: \(error)")
         }
     }
+    
+    func generateVisitSummary() async {
+        // only require transcript, presheet is optional
+        guard !dividedMessages.isEmpty else { return }
+        guard visitSummary == nil else { return }
+
+        do {
+            visitSummary = try await clinicalReasoningService.generateVisitSummary(
+                patient: patientData,                 // can be nil
+                conversationMessages: dividedMessages
+            )
+        } catch {
+            print("Visit summary generation failed: \(error)")
+        }
+    }
+
+
 
     func generateSOReport() async {
         guard !dividedMessages.isEmpty, soReport == nil else { return }

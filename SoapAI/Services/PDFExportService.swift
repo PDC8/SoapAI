@@ -13,10 +13,23 @@ final class PDFExportService {
 
     // MARK: - Public API
 
-    func exportSOAP(soap: String, issues: [HallucinationIssue]) throws -> URL {
+    func exportSOAP(
+        soReport: SOReport,
+        apReport: APReport,
+        visitSummary: VisitSummary?,
+        patientData: PatientDataModel?,
+        issues: [HallucinationIssue]
+    ) throws -> URL {
         let contentWidth = pdfPageSize.width - 2 * pdfMargin
-        let view = SoapReportPDFView(soap: soap, issues: issues)
-            .frame(width: contentWidth)
+
+        let view = SoapReportPDFView(
+            soReport: soReport,
+            apReport: apReport,
+            visitSummary: visitSummary,
+            patientData: patientData,
+            issues: issues
+        )
+        .frame(width: contentWidth)
 
         return try renderPagedPDF(
             from: view,
@@ -24,6 +37,210 @@ final class PDFExportService {
             filenamePrefix: "SOAP_Report"
         )
     }
+    
+    func exportVectorSOAP(
+        soReport: SOReport,
+        apReport: APReport,
+        visitSummary: VisitSummary?,
+        patientData: PatientDataModel?,
+        issues: [HallucinationIssue]
+    ) throws -> URL {
+        let meta: [String: Any] = [
+            kCGPDFContextCreator as String: "SoapAI",
+            kCGPDFContextTitle  as String: "SOAP Report"
+        ]
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SOAP_Report_\(UUID().uuidString).pdf")
+
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = meta
+
+        let pdfRenderer = UIGraphicsPDFRenderer(
+            bounds: CGRect(origin: .zero, size: pdfPageSize),
+            format: format
+        )
+
+        try pdfRenderer.writePDF(to: url) { ctx in
+            drawSOAPReport(
+                in: ctx,
+                soReport: soReport,
+                apReport: apReport,
+                visitSummary: visitSummary,
+                patientData: patientData,
+                issues: issues
+            )
+        }
+
+        return url
+    }
+    
+    private func drawSOAPReport(
+        in ctx: UIGraphicsPDFRendererContext,
+        soReport: SOReport,
+        apReport: APReport,
+        visitSummary: VisitSummary?,
+        patientData: PatientDataModel?,
+        issues: [HallucinationIssue]
+    ) {
+        let margin = pdfMargin
+        let contentWidth = pdfPageSize.width - 2 * margin
+        let maxContentHeight = pdfPageSize.height - 2 * margin
+
+        var cursorY = margin
+
+        func beginNewPageIfNeeded(for height: CGFloat) {
+            if cursorY + height > margin + maxContentHeight {
+                ctx.beginPage()
+                cursorY = margin
+            }
+        }
+
+        func drawHeader() {
+            ctx.beginPage()
+
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 22, weight: .bold)
+            ]
+            let subtitleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 12),
+                .foregroundColor: UIColor.secondaryLabel
+            ]
+
+            let title = "SOAP Report" as NSString
+            let titleSize = title.boundingRect(
+                with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: titleAttrs,
+                context: nil
+            ).size
+
+            title.draw(
+                in: CGRect(x: margin, y: cursorY, width: contentWidth, height: titleSize.height),
+                withAttributes: titleAttrs
+            )
+            cursorY += titleSize.height + 4
+
+            let generatedOn = DateFormatter.localizedString(
+                from: Date(),
+                dateStyle: .medium,
+                timeStyle: .short
+            )
+            let subtitle = "Generated \(generatedOn)" as NSString
+            let subtitleSize = subtitle.boundingRect(
+                with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: subtitleAttrs,
+                context: nil
+            ).size
+
+            subtitle.draw(
+                in: CGRect(x: margin, y: cursorY, width: contentWidth, height: subtitleSize.height),
+                withAttributes: subtitleAttrs
+            )
+            cursorY += subtitleSize.height + 16
+        }
+
+        func drawSection(title: String, body: String) {
+            guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 16, weight: .semibold)
+            ]
+            let bodyAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13),
+                .foregroundColor: UIColor.label
+            ]
+
+            // Measure body height
+            let bodyNSString = body as NSString
+            let bodySize = bodyNSString.boundingRect(
+                with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: bodyAttrs,
+                context: nil
+            ).size
+
+            // Title height
+            let titleNSString = title as NSString
+            let titleSize = titleNSString.boundingRect(
+                with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: titleAttrs,
+                context: nil
+            ).size
+
+            let neededHeight = titleSize.height + 4 + bodySize.height + 12
+            beginNewPageIfNeeded(for: neededHeight)
+
+            // Draw title
+            titleNSString.draw(
+                in: CGRect(x: margin, y: cursorY, width: contentWidth, height: titleSize.height),
+                withAttributes: titleAttrs
+            )
+            cursorY += titleSize.height + 4
+
+            // Draw body
+            bodyNSString.draw(
+                in: CGRect(x: margin, y: cursorY, width: contentWidth, height: bodySize.height),
+                withAttributes: bodyAttrs
+            )
+            cursorY += bodySize.height + 12
+        }
+
+        // ---------- Actual content ----------
+
+        drawHeader()
+
+        if let summary = visitSummary {
+            drawSection(title: "Visit Summary", body: summary.oneLine)
+        }
+
+        // Subjective
+        drawSection(title: "Subjective", body: soReport.subjective)
+
+        // Objective (flattened into text)
+        var objectiveLines: [String] = []
+        let o = soReport.objective
+        objectiveLines.append("HEENT: \(o.HEENT)")
+        objectiveLines.append("Lungs: \(o.lungs)")
+        objectiveLines.append("Heart: \(o.heart)")
+        objectiveLines.append("Abdomen: \(o.abdomen)")
+        objectiveLines.append("Extremities: \(o.extremities)")
+        objectiveLines.append("Neuro: \(o.neuro)")
+        objectiveLines.append("Other: \(o.other)")
+        drawSection(title: "Objective", body: objectiveLines.joined(separator: "\n"))
+
+        // Assessment
+        drawSection(title: "Assessment", body: apReport.assessment)
+
+        // Plan (as bullet list)
+        var planText = ""
+        for problem in apReport.plan {
+            planText += "\(problem.problem):\n"
+            for action in problem.actions {
+                planText += "  • \(action)\n"
+            }
+            planText += "\n"
+        }
+        drawSection(title: "Plan", body: planText.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        // Hallucinations
+        if !issues.isEmpty {
+            var issuesText = ""
+            for (idx, issue) in issues.enumerated() {
+                issuesText += "\(idx + 1). \(issue.explanation)\n"
+                if let quote = issue.supportingTranscriptQuote, !quote.isEmpty {
+                    issuesText += "   Suggested supporting quote: “\(quote)”\n"
+                }
+                issuesText += "\n"
+            }
+            drawSection(title: "Hallucination Review", body: issuesText.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+
+
 
     func exportTranscript(messages: [ChatMessage]) throws -> URL {
         let contentWidth = pdfPageSize.width - 2 * pdfMargin

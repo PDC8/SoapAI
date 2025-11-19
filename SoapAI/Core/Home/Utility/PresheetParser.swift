@@ -22,19 +22,19 @@ enum PresheetParser {
         var pmh: [String] = []
         var allergyList: [String] = []
         var medList: [String] = []
-        var vitals: String?
-        var studyList: [String] = []
+        var vitalsList: [String] = []
+        var testResultsList: [String] = []
         
         enum Section {
             case none
             case pastMedicalHistory
             case allergies
             case medications
-            case vitalsAndStudies
+            case vitals
+            case testResults
         }
         
         var currentSection: Section = .none
-        var vitalsAlreadyCaptured = false
         
         // Normalize into lines and trim whitespace
         let lines = text
@@ -99,9 +99,13 @@ enum PresheetParser {
                 continue
             }
 
-            if lower.contains("pertinent vitals") {
-                currentSection = .vitalsAndStudies
-                vitalsAlreadyCaptured = false
+            if lower.contains("vitals") {
+                currentSection = .vitals
+                continue
+            }
+            
+            if lower.contains("test") {
+                currentSection = .testResults
                 continue
             }
 
@@ -123,14 +127,14 @@ enum PresheetParser {
                     medList.append(item)
                 }
 
-            case .vitalsAndStudies:
+            case .vitals:
                 if let item = cleanBulletLine(line) {
-                    if !vitalsAlreadyCaptured {
-                        vitals = item
-                        vitalsAlreadyCaptured = true
-                    } else {
-                        studyList.append(item)
-                    }
+                    vitalsList.append(item)
+                }
+            
+            case .testResults:
+                if let item = cleanBulletLine(line) {
+                    testResultsList.append(item)
                 }
 
             case .none:
@@ -153,11 +157,11 @@ enum PresheetParser {
         if !medList.isEmpty {
             patient.medications = medList
         }
-
-        patient.vitals = vitals
-
-        if !studyList.isEmpty {
-            patient.studies = studyList
+        if !vitalsList.isEmpty {
+            patient.vitals = vitalsList
+        }
+        if !testResultsList.isEmpty {
+            patient.testResults = testResultsList
         }
 
         // Keep raw text if you want full context

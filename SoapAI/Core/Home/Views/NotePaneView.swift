@@ -18,67 +18,26 @@ struct NotePaneView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // SO card
-                if let so = viewModel.soReport {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Subjective:").font(.headline)
-                        Text(so.subjective)
-                        Text("Objective:").font(.headline)
-                        Text(so.objective)
-                    }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.white)
+            
+                
+                // SOAP Note
+                if let summary = viewModel.visitSummary,
+                   let so = viewModel.soReport,
+                   let ap = viewModel.apReport {
+                    
+                    SummaryCard(summary: summary)
+                    
+                    SubjectiveCard(
+                        soReport: so,
+                        patientData: viewModel.patientData
                     )
-                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                    .padding(.horizontal)
-                }
 
-                // Generate AP button
-                if viewModel.soReport != nil && viewModel.apReport == nil {
-                    if viewModel.isGeneratingAP {
-                        ProgressView("Generating AP…")
-                    }
-
-                    Button("Generate Assessment & Plan") {
-                        Task {
-                            await viewModel.generateAPReport()
-                        }
-                    }
-                    .disabled(viewModel.isGeneratingAP)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.black.opacity(0.8))
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 32)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(appColor.opacity(0.6))
+                    ObjectiveCard(
+                        soReport: so,
+                        patientData: viewModel.patientData
                     )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
-                    .padding(.horizontal)
-                    .padding(.top, 16)
-                }
-
-                // AP card
-                if let ap = viewModel.apReport {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Assessment:").font(.headline)
-                        Text(ap.assessment)
-                        Text("Plan:").font(.headline)
-                        Text(ap.plan)
-                    }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.white)
-                    )
-                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                    .padding(.horizontal)
+                    
+                    APCard(apReport: ap)
                 }
 
                 // Hallucination check button (appears when both SO & AP exist and no prior result)
@@ -157,7 +116,7 @@ struct NotePaneView: View {
                                 )
                             }
                         }
-                        .padding(.horizontal)
+                        .padding(.horizontal, 16)
                     }
                 }
 
